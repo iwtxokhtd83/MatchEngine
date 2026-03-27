@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 
-	"github.com/matchengine/matchengine/pkg/engine"
-	"github.com/matchengine/matchengine/pkg/model"
+	"github.com/iwtxokhtd83/MatchEngine/pkg/engine"
+	"github.com/iwtxokhtd83/MatchEngine/pkg/model"
 )
 
 func main() {
