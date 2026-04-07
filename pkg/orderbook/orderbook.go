@@ -3,6 +3,8 @@ package orderbook
 import (
 	"sort"
 
+	"github.com/shopspring/decimal"
+
 	"github.com/iwtxokhtd83/MatchEngine/pkg/model"
 )
 
@@ -25,18 +27,18 @@ func (ob *OrderBook) AddOrder(order *model.Order) {
 	if order.Side == model.Buy {
 		ob.Bids = append(ob.Bids, order)
 		sort.SliceStable(ob.Bids, func(i, j int) bool {
-			if ob.Bids[i].Price == ob.Bids[j].Price {
+			if ob.Bids[i].Price.Equal(ob.Bids[j].Price) {
 				return ob.Bids[i].Timestamp.Before(ob.Bids[j].Timestamp)
 			}
-			return ob.Bids[i].Price > ob.Bids[j].Price
+			return ob.Bids[i].Price.GreaterThan(ob.Bids[j].Price)
 		})
 	} else {
 		ob.Asks = append(ob.Asks, order)
 		sort.SliceStable(ob.Asks, func(i, j int) bool {
-			if ob.Asks[i].Price == ob.Asks[j].Price {
+			if ob.Asks[i].Price.Equal(ob.Asks[j].Price) {
 				return ob.Asks[i].Timestamp.Before(ob.Asks[j].Timestamp)
 			}
-			return ob.Asks[i].Price < ob.Asks[j].Price
+			return ob.Asks[i].Price.LessThan(ob.Asks[j].Price)
 		})
 	}
 }
@@ -75,14 +77,14 @@ func (ob *OrderBook) BestAsk() *model.Order {
 }
 
 // Spread returns the difference between best ask and best bid.
-// Returns -1 if either side is empty.
-func (ob *OrderBook) Spread() float64 {
+// Returns decimal.NewFromInt(-1) if either side is empty.
+func (ob *OrderBook) Spread() decimal.Decimal {
 	bid := ob.BestBid()
 	ask := ob.BestAsk()
 	if bid == nil || ask == nil {
-		return -1
+		return decimal.NewFromInt(-1)
 	}
-	return ask.Price - bid.Price
+	return ask.Price.Sub(bid.Price)
 }
 
 // Depth returns the number of orders on each side.
@@ -90,7 +92,7 @@ func (ob *OrderBook) Depth() (bids, asks int) {
 	return len(ob.Bids), len(ob.Asks)
 }
 
-// removeFilled removes all fully filled orders from both sides.
+// RemoveFilled removes all fully filled orders from both sides.
 func (ob *OrderBook) RemoveFilled() {
 	ob.Bids = filterFilled(ob.Bids)
 	ob.Asks = filterFilled(ob.Asks)

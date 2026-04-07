@@ -5,6 +5,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shopspring/decimal"
+
 	"github.com/iwtxokhtd83/MatchEngine/pkg/model"
 	"github.com/iwtxokhtd83/MatchEngine/pkg/orderbook"
 )
@@ -40,10 +42,10 @@ func (e *Engine) SubmitOrder(symbol string, order *model.Order) ([]model.Trade, 
 	if order == nil {
 		return nil, fmt.Errorf("order cannot be nil")
 	}
-	if order.Remaining <= 0 {
+	if order.Remaining.LessThanOrEqual(decimal.Zero) {
 		return nil, fmt.Errorf("order quantity must be positive")
 	}
-	if order.Type == model.Limit && order.Price <= 0 {
+	if order.Type == model.Limit && order.Price.LessThanOrEqual(decimal.Zero) {
 		return nil, fmt.Errorf("limit order price must be positive")
 	}
 
@@ -87,7 +89,7 @@ func (e *Engine) matchBuy(book *orderbook.OrderBook, order *model.Order) []model
 		}
 
 		// For limit orders, stop if ask price is higher than bid price
-		if order.Type == model.Limit && bestAsk.Price > order.Price {
+		if order.Type == model.Limit && bestAsk.Price.GreaterThan(order.Price) {
 			break
 		}
 
@@ -109,7 +111,7 @@ func (e *Engine) matchSell(book *orderbook.OrderBook, order *model.Order) []mode
 		}
 
 		// For limit orders, stop if bid price is lower than ask price
-		if order.Type == model.Limit && bestBid.Price < order.Price {
+		if order.Type == model.Limit && bestBid.Price.LessThan(order.Price) {
 			break
 		}
 
@@ -121,10 +123,10 @@ func (e *Engine) matchSell(book *orderbook.OrderBook, order *model.Order) []mode
 }
 
 // executeTrade fills the minimum quantity between two orders and returns a trade.
-func executeTrade(buyOrder, sellOrder *model.Order, price float64) model.Trade {
-	quantity := min(buyOrder.Remaining, sellOrder.Remaining)
-	buyOrder.Remaining -= quantity
-	sellOrder.Remaining -= quantity
+func executeTrade(buyOrder, sellOrder *model.Order, price decimal.Decimal) model.Trade {
+	quantity := decimal.Min(buyOrder.Remaining, sellOrder.Remaining)
+	buyOrder.Remaining = buyOrder.Remaining.Sub(quantity)
+	sellOrder.Remaining = sellOrder.Remaining.Sub(quantity)
 
 	return model.Trade{
 		BuyOrderID:  buyOrder.ID,
@@ -133,13 +135,6 @@ func executeTrade(buyOrder, sellOrder *model.Order, price float64) model.Trade {
 		Quantity:    quantity,
 		Timestamp:   time.Now(),
 	}
-}
-
-func min(a, b float64) float64 {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // CancelOrder removes an order from the book.

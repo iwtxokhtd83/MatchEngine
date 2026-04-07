@@ -1,6 +1,10 @@
 package model
 
-import "time"
+import (
+	"time"
+
+	"github.com/shopspring/decimal"
+)
 
 // Side represents the order side (buy or sell).
 type Side int
@@ -37,14 +41,14 @@ type Order struct {
 	ID        string
 	Side      Side
 	Type      OrderType
-	Price     float64 // ignored for market orders
-	Quantity  float64
-	Remaining float64
+	Price     decimal.Decimal // ignored for market orders
+	Quantity  decimal.Decimal
+	Remaining decimal.Decimal
 	Timestamp time.Time
 }
 
 // NewLimitOrder creates a new limit order.
-func NewLimitOrder(id string, side Side, price, quantity float64) *Order {
+func NewLimitOrder(id string, side Side, price, quantity decimal.Decimal) *Order {
 	return &Order{
 		ID:        id,
 		Side:      side,
@@ -57,7 +61,7 @@ func NewLimitOrder(id string, side Side, price, quantity float64) *Order {
 }
 
 // NewMarketOrder creates a new market order.
-func NewMarketOrder(id string, side Side, quantity float64) *Order {
+func NewMarketOrder(id string, side Side, quantity decimal.Decimal) *Order {
 	return &Order{
 		ID:        id,
 		Side:      side,
@@ -70,5 +74,5 @@ func NewMarketOrder(id string, side Side, quantity float64) *Order {
 
 // IsFilled returns true if the order is completely filled.
 func (o *Order) IsFilled() bool {
-	return o.Remaining <= 0
+	return o.Remaining.LessThanOrEqual(decimal.Zero)
 }

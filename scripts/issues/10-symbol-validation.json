@@ -1,0 +1,5 @@
+{
+  "title": "[Bug] No symbol validation — empty strings and typos silently create order books",
+  "body": "## Problem\n\nThe engine accepts any string as a symbol, including empty strings, whitespace, and typos. Each unique string creates a new order book silently.\n\n```go\ne.SubmitOrder(\"\", order)       // creates book for empty string\ne.SubmitOrder(\"  \", order)     // creates book for whitespace\ne.SubmitOrder(\"BTCUSD\", order) // different from \"BTC/USD\"\ne.SubmitOrder(\"btc/usd\", order) // different from \"BTC/USD\"\n```\n\nThis leads to orders being placed in the wrong book with no error feedback.\n\n## Affected Files\n- `pkg/engine/engine.go` — `SubmitOrder()`, `getOrCreateBook()`\n\n## Proposed Fix\n\n1. Validate symbol is non-empty and trimmed\n2. Normalize symbols (e.g., uppercase)\n3. Optionally maintain a registry of valid symbols:\n\n```go\nfunc (e *Engine) RegisterSymbol(symbol string) error { ... }\n```\n\nOnly registered symbols would be accepted by `SubmitOrder()`.\n\n## Priority\nLow — but prevents subtle user errors.",
+  "labels": ["bug"]
+}

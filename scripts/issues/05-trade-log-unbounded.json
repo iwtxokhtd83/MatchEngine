@@ -1,0 +1,5 @@
+{
+  "title": "[Bug] Trade log grows unbounded — memory leak in long-running engine",
+  "body": "## Problem\n\nThe engine appends every trade to `e.trades` and never removes them:\n\n```go\ne.trades = append(e.trades, trades...)\n```\n\n`GetTrades()` copies the entire slice on every call. For a long-running engine processing millions of trades, this causes:\n- Unbounded memory growth\n- Increasingly expensive `GetTrades()` calls (copies entire history)\n- Eventually OOM crash\n\n## Affected Files\n- `pkg/engine/engine.go` — `trades []model.Trade` field, `GetTrades()`\n\n## Proposed Fix\n- Add a trade event callback/channel so consumers can process trades in real-time\n- Limit the in-memory trade log to a configurable size (ring buffer)\n- Or remove the trade log entirely and let callers handle trade storage via the callback\n\n```go\ntype Engine struct {\n    // ...\n    onTrade func(symbol string, trade model.Trade)\n}\n```\n\n## Priority\nMedium — won't affect short demos but is a production blocker.",
+  "labels": ["bug", "enhancement"]
+}

@@ -21,3 +21,6 @@ matchengine
 # OS
 .DS_Store
 Thumbs.db
+
+# Wiki clone
+MatchEngine.wiki/

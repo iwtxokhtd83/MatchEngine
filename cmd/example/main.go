@@ -3,9 +3,16 @@ package main
 import (
 	"fmt"
 
+	"github.com/shopspring/decimal"
+
 	"github.com/iwtxokhtd83/MatchEngine/pkg/engine"
 	"github.com/iwtxokhtd83/MatchEngine/pkg/model"
 )
+
+func d(val string) decimal.Decimal {
+	v, _ := decimal.NewFromString(val)
+	return v
+}
 
 func main() {
 	e := engine.New()
@@ -16,9 +23,9 @@ func main() {
 
 	// Place some sell limit orders
 	fmt.Println("Placing sell orders...")
-	e.SubmitOrder(symbol, model.NewLimitOrder("s1", model.Sell, 50000.0, 1.0))
-	e.SubmitOrder(symbol, model.NewLimitOrder("s2", model.Sell, 50100.0, 2.0))
-	e.SubmitOrder(symbol, model.NewLimitOrder("s3", model.Sell, 50200.0, 1.5))
+	e.SubmitOrder(symbol, model.NewLimitOrder("s1", model.Sell, d("50000"), d("1")))
+	e.SubmitOrder(symbol, model.NewLimitOrder("s2", model.Sell, d("50100"), d("2")))
+	e.SubmitOrder(symbol, model.NewLimitOrder("s3", model.Sell, d("50200"), d("1.5")))
 	fmt.Println("  SELL 1.0 @ 50000")
 	fmt.Println("  SELL 2.0 @ 50100")
 	fmt.Println("  SELL 1.5 @ 50200")
@@ -26,12 +33,12 @@ func main() {
 
 	// Place a buy limit order that matches
 	fmt.Println("Placing buy limit order: BUY 0.5 @ 50000...")
-	trades, _ := e.SubmitOrder(symbol, model.NewLimitOrder("b1", model.Buy, 50000.0, 0.5))
+	trades, _ := e.SubmitOrder(symbol, model.NewLimitOrder("b1", model.Buy, d("50000"), d("0.5")))
 	printTrades(trades)
 
 	// Place a market buy order that sweeps multiple levels
 	fmt.Println("Placing market buy order: BUY 2.0 (market)...")
-	trades, _ = e.SubmitOrder(symbol, model.NewMarketOrder("b2", model.Buy, 2.0))
+	trades, _ = e.SubmitOrder(symbol, model.NewMarketOrder("b2", model.Buy, d("2")))
 	printTrades(trades)
 
 	// Show remaining order book
@@ -40,11 +47,11 @@ func main() {
 	if book != nil {
 		fmt.Println("Bids:")
 		for _, b := range book.Bids {
-			fmt.Printf("  %s: %.4f @ %.2f\n", b.ID, b.Remaining, b.Price)
+			fmt.Printf("  %s: %s @ %s\n", b.ID, b.Remaining.StringFixed(4), b.Price.StringFixed(2))
 		}
 		fmt.Println("Asks:")
 		for _, a := range book.Asks {
-			fmt.Printf("  %s: %.4f @ %.2f\n", a.ID, a.Remaining, a.Price)
+			fmt.Printf("  %s: %s @ %s\n", a.ID, a.Remaining.StringFixed(4), a.Price.StringFixed(2))
 		}
 	}
 
@@ -56,8 +63,8 @@ func printTrades(trades []model.Trade) {
 		fmt.Println("  No trades executed.")
 	}
 	for _, t := range trades {
-		fmt.Printf("  TRADE: %s <-> %s | %.4f @ %.2f\n",
-			t.BuyOrderID, t.SellOrderID, t.Quantity, t.Price)
+		fmt.Printf("  TRADE: %s <-> %s | %s @ %s\n",
+			t.BuyOrderID, t.SellOrderID, t.Quantity.StringFixed(4), t.Price.StringFixed(2))
 	}
 	fmt.Println()
 }
