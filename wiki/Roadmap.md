@@ -2,10 +2,24 @@
 
 This page tracks planned features and areas where contributions are welcome.
 
-## Short Term
+## Completed
 
-### ~~Decimal Precision~~ ✅ Done
-Replaced `float64` with [`shopspring/decimal`](https://github.com/shopspring/decimal) for all price and quantity fields. All comparisons use exact decimal arithmetic, eliminating floating-point rounding errors.
+### ~~Decimal Precision~~ ✅ (v0.1.0)
+Replaced `float64` with [`shopspring/decimal`](https://github.com/shopspring/decimal) for all price and quantity fields.
+
+### ~~Duplicate Order ID Detection~~ ✅ (v0.2.0)
+Engine maintains an order index and rejects duplicate IDs. IDs are freed after fill or cancel.
+
+### ~~Thread-Safe Order Book Reads~~ ✅ (v0.2.0)
+`GetOrderBook()` returns a deep-copy snapshot instead of an internal pointer.
+
+### ~~Bounded Trade Log~~ ✅ (v0.2.0)
+Trade log has a configurable max size (default 10,000). Supports `WithTradeHandler` callback for real-time trade processing. Log can be disabled with `WithMaxTradeLog(0)`.
+
+### ~~Symbol Validation~~ ✅ (v0.2.0)
+Symbols are normalized (uppercased, trimmed). Empty/whitespace symbols are rejected. Optional `RegisterSymbol()` for strict validation.
+
+## Short Term
 
 ### Additional Order Types
 - **Immediate-or-Cancel (IOC)**: Fill as much as possible immediately, cancel the rest.
@@ -21,48 +35,33 @@ Add Go benchmark tests to measure:
 ## Medium Term
 
 ### Event System
-Publish events for downstream consumers:
+Publish structured events for downstream consumers:
 - `OrderAccepted` — order added to book
 - `OrderMatched` — trade executed
 - `OrderCancelled` — order removed
 - `OrderBookUpdated` — book state changed
 
-This enables building real-time UIs, logging systems, and analytics pipelines.
-
 ### REST / gRPC API
-Expose the engine over the network:
-- `POST /orders` — submit an order
-- `DELETE /orders/{id}` — cancel an order
-- `GET /orderbook/{symbol}` — get current book state
-- `GET /trades` — get trade history
+Expose the engine over the network.
 
 ### Persistence
 - Write-ahead log (WAL) for crash recovery
-- Trade history storage (SQLite, PostgreSQL, or append-only file)
+- Trade history storage
 - Order book snapshots for fast restart
 
 ## Long Term
 
 ### Optimized Data Structures
-Replace sorted slices with:
-- Red-black tree for O(log n) insert/remove
-- Skip list as an alternative with simpler implementation
-- Price-level grouping to reduce per-order overhead
+Replace sorted slices with red-black tree or skip list for O(log n) insert/remove.
 
 ### Per-Symbol Locking
-Replace the single engine mutex with per-symbol locks to allow parallel matching across different trading pairs.
+Replace the single engine mutex with per-symbol locks.
 
 ### Stop Orders
-- **Stop-Market**: Becomes a market order when the stop price is reached.
-- **Stop-Limit**: Becomes a limit order when the stop price is reached.
-
-Requires a price trigger mechanism that monitors the last trade price.
+Stop-Market and Stop-Limit orders with price trigger mechanism.
 
 ### WebSocket Feed
-Real-time streaming of:
-- Order book updates (Level 2 data)
-- Trade feed
-- Ticker (last price, 24h volume, etc.)
+Real-time streaming of order book updates and trade feed.
 
 ## Contributing
 

@@ -47,12 +47,13 @@ Manages the sorted storage of orders. Responsibilities:
 
 The orchestration layer. Responsibilities:
 
-- Accept incoming orders and validate them
-- Route orders to the correct symbol's order book
+- Accept incoming orders and validate them (symbol, price, quantity, duplicate ID)
+- Route orders to the correct symbol's order book (with symbol normalization)
 - Execute the matching algorithm
-- Record executed trades
+- Record executed trades (bounded log + optional callback)
 - Handle order cancellation
 - Provide thread-safe access via mutex
+- Return order book snapshots for safe concurrent reads
 
 ## Data Flow
 
@@ -88,5 +89,7 @@ The orchestration layer. Responsibilities:
 ## Thread Safety Model
 
 A single `sync.Mutex` protects all shared state within an `Engine` instance. Every public method acquires the lock before accessing order books or the trade log.
+
+`GetOrderBook()` returns a deep-copy snapshot, so callers can safely read order book data without holding the lock and without risk of data races.
 
 This is a deliberate simplicity trade-off. For higher throughput, the lock can be replaced with per-symbol mutexes or a sharded architecture without changing the matching logic.
