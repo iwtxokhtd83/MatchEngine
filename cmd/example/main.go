@@ -46,11 +46,11 @@ func main() {
 	book := e.GetOrderBook(symbol)
 	if book != nil {
 		fmt.Println("Bids:")
-		for _, b := range book.Bids {
+		for _, b := range book.Bids() {
 			fmt.Printf("  %s: %s @ %s\n", b.ID, b.Remaining.StringFixed(4), b.Price.StringFixed(2))
 		}
 		fmt.Println("Asks:")
-		for _, a := range book.Asks {
+		for _, a := range book.Asks() {
 			fmt.Printf("  %s: %s @ %s\n", a.ID, a.Remaining.StringFixed(4), a.Price.StringFixed(2))
 		}
 	}

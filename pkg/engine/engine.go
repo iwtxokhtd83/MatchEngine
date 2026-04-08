@@ -177,12 +177,12 @@ func (e *Engine) match(book *orderbook.OrderBook, order *model.Order) []model.Tr
 
 // cleanFilled removes filled orders from the book and the order index.
 func (e *Engine) cleanFilled(book *orderbook.OrderBook) {
-	for _, o := range book.Bids {
+	for _, o := range book.Bids() {
 		if o.IsFilled() {
 			delete(e.orderIndex, o.ID)
 		}
 	}
-	for _, o := range book.Asks {
+	for _, o := range book.Asks() {
 		if o.IsFilled() {
 			delete(e.orderIndex, o.ID)
 		}

@@ -7,10 +7,9 @@ A high-performance order matching engine written in Go.
 - Limit order support (buy/sell)
 - Market order support
 - Price-time priority matching (FIFO)
-- In-memory order book with efficient data structures
-- Real-time trade execution
-- Cancel order support
-- Thread-safe design
+- Exact decimal arithmetic via [shopspring/decimal](https://github.com/shopspring/decimal)
+- Efficient price-level order book with O(log p) insertion (p = distinct price levels)
+- Duplicate order ID detection
 
 ## Architecture
 

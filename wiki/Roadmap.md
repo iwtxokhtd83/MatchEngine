@@ -19,6 +19,9 @@ Trade log has a configurable max size (default 10,000). Supports `WithTradeHandl
 ### ~~Symbol Validation~~ ✅ (v0.2.0)
 Symbols are normalized (uppercased, trimmed). Empty/whitespace symbols are rejected. Optional `RegisterSymbol()` for strict validation.
 
+### ~~Optimized Order Book~~ ✅ (v0.3.0)
+Replaced O(n log n) sorted-slice with price-level map + binary search. Insert is now O(log p) where p = distinct price levels. Added benchmark tests.
+
 ## Short Term
 
 ### Additional Order Types
@@ -26,11 +29,8 @@ Symbols are normalized (uppercased, trimmed). Empty/whitespace symbols are rejec
 - **Fill-or-Kill (FOK)**: Fill the entire order immediately or cancel it entirely.
 - **Good-Till-Cancelled (GTC)**: Order stays in the book until explicitly cancelled or an expiry time is reached.
 
-### Benchmarks
-Add Go benchmark tests to measure:
-- Orders per second (throughput)
-- Time to match (latency)
-- Memory usage under load
+### ~~Benchmarks~~ ✅ (v0.3.0)
+Benchmark tests added: `BenchmarkInsertOnly`, `BenchmarkInsertAndMatch`, `BenchmarkInsertMultiplePriceLevels`. Run with `go test -bench=. -benchmem ./pkg/engine/`.
 
 ## Medium Term
 
@@ -51,8 +51,8 @@ Expose the engine over the network.
 
 ## Long Term
 
-### Optimized Data Structures
-Replace sorted slices with red-black tree or skip list for O(log n) insert/remove.
+### ~~Optimized Data Structures~~ ✅ (v0.3.0)
+Replaced sorted slices with price-level map + sorted price keys with binary search insertion.
 
 ### Per-Symbol Locking
 Replace the single engine mutex with per-symbol locks.

@@ -60,11 +60,11 @@ func TestPartialFill(t *testing.T) {
 	}
 
 	book := e.GetOrderBook("BTC")
-	if len(book.Bids) != 1 {
-		t.Fatalf("expected 1 bid remaining, got %d", len(book.Bids))
+	if len(book.Bids()) != 1 {
+		t.Fatalf("expected 1 bid remaining, got %d", len(book.Bids()))
 	}
-	if !book.Bids[0].Remaining.Equal(d("7")) {
-		t.Errorf("expected remaining 7, got %s", book.Bids[0].Remaining)
+	if !book.Bids()[0].Remaining.Equal(d("7")) {
+		t.Errorf("expected remaining 7, got %s", book.Bids()[0].Remaining)
 	}
 }
 
@@ -274,15 +274,15 @@ func TestGetOrderBookReturnsSnapshot(t *testing.T) {
 	}
 
 	// Modify the snapshot — should NOT affect the engine's internal book
-	snap.Asks[0].Remaining = d("999")
+	snap.Asks()[0].Remaining = d("999")
 
 	// Get another snapshot — should still show original value
 	snap2 := e.GetOrderBook("SNAP")
-	if snap2.Asks[0].Remaining.Equal(d("999")) {
+	if snap2.Asks()[0].Remaining.Equal(d("999")) {
 		t.Error("snapshot mutation affected internal order book — not a true deep copy")
 	}
-	if !snap2.Asks[0].Remaining.Equal(d("10")) {
-		t.Errorf("expected remaining 10, got %s", snap2.Asks[0].Remaining)
+	if !snap2.Asks()[0].Remaining.Equal(d("10")) {
+		t.Errorf("expected remaining 10, got %s", snap2.Asks()[0].Remaining)
 	}
 }
 

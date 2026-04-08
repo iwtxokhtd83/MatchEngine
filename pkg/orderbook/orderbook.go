@@ -8,18 +8,144 @@ import (
 	"github.com/iwtxokhtd83/MatchEngine/pkg/model"
 )
 
-// OrderBook maintains buy and sell orders sorted by price-time priority.
+// orderSide maintains one side of the order book as sorted price levels.
+type orderSide struct {
+	prices []decimal.Decimal          // sorted price keys
+	levels map[string]*priceLevel     // price.String() -> level
+	less   func(a, b decimal.Decimal) bool // sort comparator
+	count  int                         // total order count
+}
+
+func newOrderSide(less func(a, b decimal.Decimal) bool) *orderSide {
+	return &orderSide{
+		prices: make([]decimal.Decimal, 0),
+		levels: make(map[string]*priceLevel),
+		less:   less,
+	}
+}
+
+// insert adds an order to the correct price level using binary search.
+// O(log p) to find the level, O(1) amortized to append to the level's queue.
+func (s *orderSide) insert(order *model.Order) {
+	key := order.Price.String()
+	pl, exists := s.levels[key]
+	if !exists {
+		pl = newPriceLevel()
+		s.levels[key] = pl
+		// Binary search for insertion point
+		idx := sort.Search(len(s.prices), func(i int) bool {
+			return s.less(order.Price, s.prices[i]) || order.Price.Equal(s.prices[i])
+		})
+		// Insert price at idx
+		s.prices = append(s.prices, decimal.Zero)
+		copy(s.prices[idx+1:], s.prices[idx:])
+		s.prices[idx] = order.Price
+	}
+	pl.append(order)
+	s.count++
+}
+
+// remove removes an order by ID from its price level. O(1) level lookup + O(k) scan within level.
+func (s *orderSide) remove(order *model.Order) {
+	key := order.Price.String()
+	pl, exists := s.levels[key]
+	if !exists {
+		return
+	}
+	if pl.remove(order.ID) {
+		s.count--
+		if pl.len() == 0 {
+			s.removePrice(key, order.Price)
+		}
+	}
+}
+
+// removePrice removes an empty price level.
+func (s *orderSide) removePrice(key string, price decimal.Decimal) {
+	delete(s.levels, key)
+	for i, p := range s.prices {
+		if p.Equal(price) {
+			s.prices = append(s.prices[:i], s.prices[i+1:]...)
+			return
+		}
+	}
+}
+
+// best returns the best (first) order, or nil if empty. O(1).
+func (s *orderSide) best() *model.Order {
+	if len(s.prices) == 0 {
+		return nil
+	}
+	key := s.prices[0].String()
+	return s.levels[key].front()
+}
+
+// removeFilled removes all filled orders from all levels, cleaning up empty levels.
+func (s *orderSide) removeFilled() []*model.Order {
+	var filled []*model.Order
+	pricesToRemove := make([]int, 0)
+
+	for i, price := range s.prices {
+		key := price.String()
+		pl := s.levels[key]
+		// Collect filled orders before removing
+		for _, o := range pl.allOrders() {
+			if o.IsFilled() {
+				filled = append(filled, o)
+				s.count--
+			}
+		}
+		remaining := pl.removeFilled()
+		if remaining == 0 {
+			delete(s.levels, key)
+			pricesToRemove = append(pricesToRemove, i)
+		}
+	}
+
+	// Remove empty price levels from slice (reverse order to preserve indices)
+	for i := len(pricesToRemove) - 1; i >= 0; i-- {
+		idx := pricesToRemove[i]
+		s.prices = append(s.prices[:idx], s.prices[idx+1:]...)
+	}
+
+	return filled
+}
+
+// flatten returns all orders in price-time priority order.
+func (s *orderSide) flatten() []*model.Order {
+	result := make([]*model.Order, 0, s.count)
+	for _, price := range s.prices {
+		key := price.String()
+		pl := s.levels[key]
+		result = append(result, pl.allOrders()...)
+	}
+	return result
+}
+
+// OrderBook maintains buy and sell orders using price-level maps with sorted price keys.
+//
+// Complexity:
+//   - Insert: O(log p) where p = number of distinct price levels
+//   - Remove by ID: O(1) map lookup + O(k) within price level
+//   - Best price: O(1)
+//   - Snapshot: O(n)
 type OrderBook struct {
-	Bids   []*model.Order          // buy orders: highest price first
-	Asks   []*model.Order          // sell orders: lowest price first
+	bids   *orderSide
+	asks   *orderSide
 	orders map[string]*model.Order // order ID -> order for O(1) lookup
 }
 
 // New creates a new empty order book.
 func New() *OrderBook {
 	return &OrderBook{
-		Bids:   make([]*model.Order, 0),
-		Asks:   make([]*model.Order, 0),
+		// Bids: best = highest price first
+		bids: newOrderSide(func(a, b decimal.Decimal) bool {
+			return a.GreaterThan(b)
+		}),
+		// Asks: best = lowest price first
+		asks: newOrderSide(func(a, b decimal.Decimal) bool {
+			return a.LessThan(b)
+		}),
 		orders: make(map[string]*model.Order),
 	}
 }
@@ -34,21 +160,9 @@ func (ob *OrderBook) HasOrder(orderID string) bool {
 func (ob *OrderBook) AddOrder(order *model.Order) {
 	ob.orders[order.ID] = order
 	if order.Side == model.Buy {
-		ob.Bids = append(ob.Bids, order)
-		sort.SliceStable(ob.Bids, func(i, j int) bool {
-			if ob.Bids[i].Price.Equal(ob.Bids[j].Price) {
-				return ob.Bids[i].Timestamp.Before(ob.Bids[j].Timestamp)
-			}
-			return ob.Bids[i].Price.GreaterThan(ob.Bids[j].Price)
-		})
+		ob.bids.insert(order)
 	} else {
-		ob.Asks = append(ob.Asks, order)
-		sort.SliceStable(ob.Asks, func(i, j int) bool {
-			if ob.Asks[i].Price.Equal(ob.Asks[j].Price) {
-				return ob.Asks[i].Timestamp.Before(ob.Asks[j].Timestamp)
-			}
-			return ob.Asks[i].Price.LessThan(ob.Asks[j].Price)
-		})
+		ob.asks.insert(order)
 	}
 }
 
@@ -60,36 +174,21 @@ func (ob *OrderBook) RemoveOrder(orderID string) bool {
 	}
 	delete(ob.orders, orderID)
 	if order.Side == model.Buy {
-		ob.Bids = removeFromSlice(ob.Bids, orderID)
+		ob.bids.remove(order)
 	} else {
-		ob.Asks = removeFromSlice(ob.Asks, orderID)
+		ob.asks.remove(order)
 	}
 	return true
 }
 
-func removeFromSlice(orders []*model.Order, id string) []*model.Order {
-	for i, o := range orders {
-		if o.ID == id {
-			return append(orders[:i], orders[i+1:]...)
-		}
-	}
-	return orders
-}
-
 // BestBid returns the highest-priced buy order, or nil if empty.
 func (ob *OrderBook) BestBid() *model.Order {
-	if len(ob.Bids) == 0 {
-		return nil
-	}
-	return ob.Bids[0]
+	return ob.bids.best()
 }
 
 // BestAsk returns the lowest-priced sell order, or nil if empty.
 func (ob *OrderBook) BestAsk() *model.Order {
-	if len(ob.Asks) == 0 {
-		return nil
-	}
-	return ob.Asks[0]
+	return ob.asks.best()
 }
 
 // Spread returns the difference between best ask and best bid.
@@ -105,43 +204,41 @@ func (ob *OrderBook) Spread() decimal.Decimal {
 
 // Depth returns the number of orders on each side.
 func (ob *OrderBook) Depth() (bids, asks int) {
-	return len(ob.Bids), len(ob.Asks)
+	return ob.bids.count, ob.asks.count
+}
+
+// Bids returns all bid orders in price-time priority order (highest price first).
+func (ob *OrderBook) Bids() []*model.Order {
+	return ob.bids.flatten()
+}
+
+// Asks returns all ask orders in price-time priority order (lowest price first).
+func (ob *OrderBook) Asks() []*model.Order {
+	return ob.asks.flatten()
 }
 
 // RemoveFilled removes all fully filled orders from both sides.
 func (ob *OrderBook) RemoveFilled() {
-	ob.Bids = ob.filterFilled(ob.Bids)
-	ob.Asks = ob.filterFilled(ob.Asks)
-}
-
-func (ob *OrderBook) filterFilled(orders []*model.Order) []*model.Order {
-	result := make([]*model.Order, 0, len(orders))
-	for _, o := range orders {
-		if !o.IsFilled() {
-			result = append(result, o)
-		} else {
-			delete(ob.orders, o.ID)
-		}
+	for _, o := range ob.bids.removeFilled() {
+		delete(ob.orders, o.ID)
 	}
-	return result
+	for _, o := range ob.asks.removeFilled() {
+		delete(ob.orders, o.ID)
+	}
 }
 
 // Snapshot returns a deep copy of the order book for safe read access.
 func (ob *OrderBook) Snapshot() *OrderBook {
-	snap := &OrderBook{
-		Bids:   make([]*model.Order, len(ob.Bids)),
-		Asks:   make([]*model.Order, len(ob.Asks)),
-		orders: make(map[string]*model.Order),
-	}
-	for i, o := range ob.Bids {
+	snap := New()
+	for _, o := range ob.bids.flatten() {
 		cp := *o
-		snap.Bids[i] = &cp
 		snap.orders[cp.ID] = &cp
+		snap.bids.insert(&cp)
 	}
-	for i, o := range ob.Asks {
+	for _, o := range ob.asks.flatten() {
 		cp := *o
-		snap.Asks[i] = &cp
 		snap.orders[cp.ID] = &cp
+		snap.asks.insert(&cp)
 	}
 	return snap
 }
