@@ -1,5 +1,0 @@
-{
-  "title": "[Enhancement] Engine should generate unique order IDs internally",
-  "body": "## Problem\n\nOrder IDs are currently provided by the caller as plain strings. This puts the burden of uniqueness on the user and opens the door to duplicate ID bugs (see related issue).\n\nThere is no built-in ID generation, sequencing, or validation.\n\n## Proposed Solution\n\nAdd an internal order ID generator using either:\n- Atomic counter: `atomic.AddUint64(&e.nextID, 1)` — simple, fast, monotonically increasing\n- UUID: `google/uuid` — globally unique but heavier\n\nThe engine should assign IDs internally and return them to the caller:\n\n```go\nfunc (e *Engine) SubmitOrder(symbol string, req OrderRequest) (string, []model.Trade, error) {\n    id := e.generateID()\n    order := &model.Order{ID: id, ...}\n    // ...\n    return id, trades, nil\n}\n```\n\nThis also enables the engine to maintain an order index (`map[string]*Order`) for O(1) lookups.\n\n## Priority\nMedium — improves API safety and enables other optimizations.",
-  "labels": ["enhancement"]
-}

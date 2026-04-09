@@ -1,5 +1,0 @@
-{
-  "title": "[Enhancement] Add self-trade prevention (STP)",
-  "body": "## Problem\n\nThe engine has no concept of order ownership (user/account). This means a single participant can match against their own orders, which is known as a \"self-trade\" or \"wash trade.\"\n\nSelf-trading is prohibited on most regulated exchanges and can be used for market manipulation (inflating volume).\n\n## Proposed Solution\n\nAdd an `OwnerID` field to the `Order` struct:\n\n```go\ntype Order struct {\n    ID        string\n    OwnerID   string  // new: identifies the trader\n    Side      Side\n    // ...\n}\n```\n\nDuring matching, skip or cancel orders from the same owner. Common STP modes:\n\n| Mode | Behavior |\n|------|----------|\n| Cancel Resting | Cancel the resting order, continue matching |\n| Cancel Incoming | Cancel the incoming order entirely |\n| Cancel Both | Cancel both orders |\n| Decrement | Reduce both by the overlap quantity |\n\nThe mode could be configurable per engine or per order.\n\n## Priority\nMedium — important for any multi-user deployment.",
-  "labels": ["enhancement"]
-}
