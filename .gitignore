@@ -24,3 +24,7 @@ Thumbs.db
 
 # Wiki clone
 MatchEngine.wiki/
+
+# Local scripts and docs
+scripts/
+docs/

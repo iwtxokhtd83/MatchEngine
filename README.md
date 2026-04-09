@@ -10,6 +10,10 @@ A high-performance order matching engine written in Go.
 - Exact decimal arithmetic via [shopspring/decimal](https://github.com/shopspring/decimal)
 - Efficient price-level order book with O(log p) insertion (p = distinct price levels)
 - Duplicate order ID detection
+- Internal order ID generation (atomic counter, monotonically increasing)
+- Thread-safe design with snapshot-based order book reads
+- Bounded trade log with configurable size and trade callback
+- Symbol validation and normalization
 
 ## Architecture
 

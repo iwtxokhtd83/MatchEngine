@@ -2,8 +2,10 @@ package engine
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -20,6 +22,8 @@ type TradeHandler func(symbol string, trade model.Trade)
 // Engine is the core matching engine that processes orders and produces trades.
 type Engine struct {
 	mu          sync.Mutex
+	nextID      uint64                          // atomic counter for ID generation
+	idPrefix    string                          // optional prefix for generated IDs
 	books       map[string]*orderbook.OrderBook // symbol -> order book
 	orderIndex  map[string]string               // order ID -> symbol (for duplicate detection)
 	trades      []model.Trade
@@ -43,6 +47,13 @@ func WithMaxTradeLog(n int) Option {
 func WithTradeHandler(h TradeHandler) Option {
 	return func(e *Engine) {
 		e.onTrade = h
+	}
+}
+
+// WithIDPrefix sets a prefix for auto-generated order IDs (e.g., "ORD-").
+func WithIDPrefix(prefix string) Option {
+	return func(e *Engine) {
+		e.idPrefix = prefix
 	}
 }
 
@@ -102,8 +113,47 @@ func (e *Engine) getOrCreateBook(symbol string) *orderbook.OrderBook {
 	return book
 }
 
+// generateID returns a unique, monotonically increasing order ID.
+func (e *Engine) generateID() string {
+	id := atomic.AddUint64(&e.nextID, 1)
+	return e.idPrefix + strconv.FormatUint(id, 10)
+}
+
+// SubmitLimitOrder creates a limit order with an auto-generated ID and submits it.
+// Returns the generated order ID, any trades, and an error if invalid.
+func (e *Engine) SubmitLimitOrder(symbol string, side model.Side, price, quantity decimal.Decimal) (string, []model.Trade, error) {
+	id := e.generateID()
+	order := model.NewLimitOrder(id, side, price, quantity)
+	trades, err := e.SubmitOrder(symbol, order)
+	return id, trades, err
+}
+
+// SubmitMarketOrder creates a market order with an auto-generated ID and submits it.
+// Returns the generated order ID, any trades, and an error if invalid.
+func (e *Engine) SubmitMarketOrder(symbol string, side model.Side, quantity decimal.Decimal) (string, []model.Trade, error) {
+	id := e.generateID()
+	order := model.NewMarketOrder(id, side, quantity)
+	trades, err := e.SubmitOrder(symbol, order)
+	return id, trades, err
+}
+
+// SubmitRequest creates an order from an OrderRequest with an auto-generated ID and submits it.
+// Returns the generated order ID, any trades, and an error if invalid.
+func (e *Engine) SubmitRequest(symbol string, req model.OrderRequest) (string, []model.Trade, error) {
+	id := e.generateID()
+	var order *model.Order
+	if req.Type == model.Market {
+		order = model.NewMarketOrder(id, req.Side, req.Quantity)
+	} else {
+		order = model.NewLimitOrder(id, req.Side, req.Price, req.Quantity)
+	}
+	trades, err := e.SubmitOrder(symbol, order)
+	return id, trades, err
+}
+
 // SubmitOrder processes an incoming order, attempting to match it against the book.
 // Returns any trades generated and an error if the order is invalid.
+// For auto-generated IDs, prefer SubmitLimitOrder, SubmitMarketOrder, or SubmitRequest.
 func (e *Engine) SubmitOrder(symbol string, order *model.Order) ([]model.Trade, error) {
 	if order == nil {
 		return nil, fmt.Errorf("order cannot be nil")

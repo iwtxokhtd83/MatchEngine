@@ -14,6 +14,7 @@ e := engine.New()
 
 // With options
 e := engine.New(
+    engine.WithIDPrefix("ORD-"),
     engine.WithMaxTradeLog(5000),
     engine.WithTradeHandler(func(symbol string, trade model.Trade) {
         log.Printf("Trade on %s: %s @ %s", symbol, trade.Quantity, trade.Price)
@@ -25,8 +26,73 @@ e := engine.New(
 
 | Option | Description | Default |
 |--------|-------------|---------|
+| `WithIDPrefix(s)` | Prefix for auto-generated order IDs (e.g., `"ORD-"` produces `"ORD-1"`, `"ORD-2"`, ...) | `""` |
 | `WithMaxTradeLog(n)` | Max trades kept in memory. Oldest evicted when full. Set to 0 to disable. | 10000 |
 | `WithTradeHandler(fn)` | Callback invoked for every executed trade. | nil |
+
+---
+
+### SubmitLimitOrder (recommended)
+
+```go
+func (e *Engine) SubmitLimitOrder(symbol string, side model.Side, price, quantity decimal.Decimal) (string, []model.Trade, error)
+```
+
+Creates a limit order with an auto-generated unique ID and submits it.
+
+**Returns:** `(orderID, trades, error)`
+
+**Example:**
+
+```go
+id, trades, err := e.SubmitLimitOrder("BTC/USD", model.Sell, decimal.NewFromInt(50000), decimal.NewFromInt(1))
+fmt.Printf("Order %s placed, %d trades\n", id, len(trades))
+```
+
+---
+
+### SubmitMarketOrder (recommended)
+
+```go
+func (e *Engine) SubmitMarketOrder(symbol string, side model.Side, quantity decimal.Decimal) (string, []model.Trade, error)
+```
+
+Creates a market order with an auto-generated unique ID and submits it.
+
+**Returns:** `(orderID, trades, error)`
+
+**Example:**
+
+```go
+id, trades, err := e.SubmitMarketOrder("BTC/USD", model.Buy, decimal.RequireFromString("0.5"))
+```
+
+---
+
+### SubmitRequest
+
+```go
+func (e *Engine) SubmitRequest(symbol string, req model.OrderRequest) (string, []model.Trade, error)
+```
+
+Creates an order from an `OrderRequest` struct with an auto-generated ID and submits it.
+
+**Example:**
+
+```go
+req := model.NewLimitOrderRequest(model.Buy, decimal.NewFromInt(100), decimal.NewFromInt(10))
+id, trades, err := e.SubmitRequest("AAPL", req)
+```
+
+---
+
+### SubmitOrder (legacy)
+
+```go
+func (e *Engine) SubmitOrder(symbol string, order *model.Order) ([]model.Trade, error)
+```
+
+Submits an order with a caller-provided ID. Kept for backward compatibility. For new code, prefer `SubmitLimitOrder`, `SubmitMarketOrder`, or `SubmitRequest`.
 
 ---
 
@@ -36,40 +102,7 @@ e := engine.New(
 func (e *Engine) RegisterSymbol(symbol string) error
 ```
 
-Registers a valid trading symbol. Once any symbol is registered, only registered symbols are accepted by `SubmitOrder`. Symbols are normalized (uppercased, trimmed).
-
-**Example:**
-
-```go
-e.RegisterSymbol("BTC/USD")
-e.RegisterSymbol("ETH/USD")
-// Now only BTC/USD and ETH/USD are accepted
-```
-
----
-
-### SubmitOrder
-
-```go
-func (e *Engine) SubmitOrder(symbol string, order *model.Order) ([]model.Trade, error)
-```
-
-Submits an order to the engine. Symbols are automatically normalized (uppercased, trimmed).
-
-**Errors:**
-- `order cannot be nil`
-- `order quantity must be positive`
-- `limit order price must be positive`
-- `symbol cannot be empty`
-- `symbol "X" is not registered` (when symbol registration is used)
-- `duplicate order ID: X`
-
-**Example:**
-
-```go
-order := model.NewLimitOrder("buy-1", model.Buy, decimal.NewFromInt(100), decimal.NewFromInt(10))
-trades, err := e.SubmitOrder("AAPL", order)
-```
+Registers a valid trading symbol. Once any symbol is registered, only registered symbols are accepted.
 
 ---
 
@@ -79,9 +112,7 @@ trades, err := e.SubmitOrder("AAPL", order)
 func (e *Engine) CancelOrder(symbol, orderID string) bool
 ```
 
-Removes a resting order from the book. The order ID becomes available for reuse after cancellation.
-
-**Returns:** `true` if the order was found and removed, `false` otherwise.
+Removes a resting order from the book. Works with both auto-generated and caller-provided IDs.
 
 ---
 
@@ -91,7 +122,7 @@ Removes a resting order from the book. The order ID becomes available for reuse 
 func (e *Engine) GetTrades() []model.Trade
 ```
 
-Returns a copy of the in-memory trade log. The log size is bounded by `WithMaxTradeLog`.
+Returns a copy of the in-memory trade log.
 
 ---
 
@@ -101,22 +132,25 @@ Returns a copy of the in-memory trade log. The log size is bounded by `WithMaxTr
 func (e *Engine) GetOrderBook(symbol string) *orderbook.OrderBook
 ```
 
-Returns a deep-copy snapshot of the order book. Safe for concurrent read access — mutations to the snapshot do not affect the engine's internal state.
+Returns a deep-copy snapshot of the order book. Safe for concurrent read access.
 
-**Example:**
+---
+
+## OrderRequest
+
+`OrderRequest` is used with `SubmitRequest` for a cleaner API without manual ID management.
 
 ```go
-book := e.GetOrderBook("BTC/USD")
-if book != nil {
-    fmt.Printf("Best bid: %s\n", book.BestBid().Price.StringFixed(2))
-    fmt.Printf("Best ask: %s\n", book.BestAsk().Price.StringFixed(2))
-    fmt.Printf("Spread: %s\n", book.Spread().StringFixed(2))
-}
+// Limit order request
+req := model.NewLimitOrderRequest(model.Buy, price, quantity)
+
+// Market order request
+req := model.NewMarketOrderRequest(model.Sell, quantity)
 ```
 
 ---
 
-## Model Constructors
+## Model Constructors (for use with SubmitOrder)
 
 ### NewLimitOrder
 
@@ -130,8 +164,6 @@ func NewLimitOrder(id string, side Side, price, quantity decimal.Decimal) *Order
 func NewMarketOrder(id string, side Side, quantity decimal.Decimal) *Order
 ```
 
-> All price and quantity fields use [`shopspring/decimal`](https://github.com/shopspring/decimal) for exact decimal arithmetic.
-
 ---
 
 ## Enums
@@ -140,8 +172,8 @@ func NewMarketOrder(id string, side Side, quantity decimal.Decimal) *Order
 
 ```go
 const (
-    Buy  Side = iota  // 0
-    Sell              // 1
+    Buy  Side = iota
+    Sell
 )
 ```
 
@@ -149,7 +181,7 @@ const (
 
 ```go
 const (
-    Limit  OrderType = iota  // 0
-    Market                   // 1
+    Limit  OrderType = iota
+    Market
 )
 ```

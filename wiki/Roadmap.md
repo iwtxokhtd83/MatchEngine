@@ -22,6 +22,9 @@ Symbols are normalized (uppercased, trimmed). Empty/whitespace symbols are rejec
 ### ~~Optimized Order Book~~ ✅ (v0.3.0)
 Replaced O(n log n) sorted-slice with price-level map + binary search. Insert is now O(log p) where p = distinct price levels. Added benchmark tests.
 
+### ~~Internal Order ID Generation~~ ✅ (v0.4.0)
+Engine generates unique, monotonically increasing order IDs via atomic counter. New methods: `SubmitLimitOrder`, `SubmitMarketOrder`, `SubmitRequest`. Configurable prefix via `WithIDPrefix`. Original `SubmitOrder` kept for backward compatibility.
+
 ## Short Term
 
 ### Additional Order Types
