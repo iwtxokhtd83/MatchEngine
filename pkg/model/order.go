@@ -39,6 +39,7 @@ func (t OrderType) String() string {
 // Order represents a trading order.
 type Order struct {
 	ID        string
+	OwnerID   string          // identifies the trader (used for self-trade prevention)
 	Side      Side
 	Type      OrderType
 	Price     decimal.Decimal // ignored for market orders

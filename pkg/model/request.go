@@ -5,6 +5,7 @@ import "github.com/shopspring/decimal"
 // OrderRequest represents a request to place an order.
 // The engine assigns a unique ID internally.
 type OrderRequest struct {
+	OwnerID  string          // identifies the trader (used for self-trade prevention)
 	Side     Side
 	Type     OrderType
 	Price    decimal.Decimal // required for Limit orders, ignored for Market
@@ -28,4 +29,10 @@ func NewMarketOrderRequest(side Side, quantity decimal.Decimal) OrderRequest {
 		Type:     Market,
 		Quantity: quantity,
 	}
+}
+
+// WithOwner returns a copy of the request with the OwnerID set.
+func (r OrderRequest) WithOwner(ownerID string) OrderRequest {
+	r.OwnerID = ownerID
+	return r
 }

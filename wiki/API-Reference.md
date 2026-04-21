@@ -27,6 +27,7 @@ e := engine.New(
 | Option | Description | Default |
 |--------|-------------|---------|
 | `WithIDPrefix(s)` | Prefix for auto-generated order IDs (e.g., `"ORD-"` produces `"ORD-1"`, `"ORD-2"`, ...) | `""` |
+| `WithSTPMode(mode)` | Self-trade prevention mode. See [STP Modes](#stp-modes). | `STPNone` |
 | `WithMaxTradeLog(n)` | Max trades kept in memory. Oldest evicted when full. Set to 0 to disable. | 10000 |
 | `WithTradeHandler(fn)` | Callback invoked for every executed trade. | nil |
 
@@ -82,6 +83,13 @@ Creates an order from an `OrderRequest` struct with an auto-generated ID and sub
 ```go
 req := model.NewLimitOrderRequest(model.Buy, decimal.NewFromInt(100), decimal.NewFromInt(10))
 id, trades, err := e.SubmitRequest("AAPL", req)
+```
+
+With owner for STP:
+
+```go
+req := model.NewLimitOrderRequest(model.Buy, price, qty).WithOwner("alice")
+id, trades, err := e.SubmitRequest("BTC/USD", req)
 ```
 
 ---
@@ -185,3 +193,23 @@ const (
     Market
 )
 ```
+
+---
+
+## STP Modes
+
+Self-trade prevention prevents orders from the same owner matching against each other. Set the `OwnerID` field on orders to identify the trader.
+
+```go
+e := engine.New(engine.WithSTPMode(model.STPCancelResting))
+```
+
+| Mode | Constant | Behavior |
+|------|----------|----------|
+| None | `STPNone` | Disabled. Self-trades are allowed. (default) |
+| Cancel Resting | `STPCancelResting` | Cancel the resting order, continue matching the incoming order against the next level. |
+| Cancel Incoming | `STPCancelIncoming` | Cancel the incoming order entirely. Resting order is preserved. |
+| Cancel Both | `STPCancelBoth` | Cancel both orders. |
+| Decrement | `STPDecrement` | Reduce both orders by the overlap quantity without producing a trade. |
+
+Orders with empty `OwnerID` are never subject to STP — they match normally regardless of mode.

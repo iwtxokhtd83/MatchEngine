@@ -11,6 +11,7 @@ A high-performance order matching engine written in Go.
 - Efficient price-level order book with O(log p) insertion (p = distinct price levels)
 - Duplicate order ID detection
 - Internal order ID generation (atomic counter, monotonically increasing)
+- Self-trade prevention (4 modes: CancelResting, CancelIncoming, CancelBoth, Decrement)
 - Thread-safe design with snapshot-based order book reads
 - Bounded trade log with configurable size and trade callback
 - Symbol validation and normalization

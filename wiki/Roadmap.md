@@ -25,6 +25,9 @@ Replaced O(n log n) sorted-slice with price-level map + binary search. Insert is
 ### ~~Internal Order ID Generation~~ ✅ (v0.4.0)
 Engine generates unique, monotonically increasing order IDs via atomic counter. New methods: `SubmitLimitOrder`, `SubmitMarketOrder`, `SubmitRequest`. Configurable prefix via `WithIDPrefix`. Original `SubmitOrder` kept for backward compatibility.
 
+### ~~Self-Trade Prevention~~ ✅ (v0.5.0)
+Four STP modes: CancelResting, CancelIncoming, CancelBoth, Decrement. Configurable via `WithSTPMode`. Uses `OwnerID` field on orders. Empty OwnerID bypasses STP.
+
 ## Short Term
 
 ### Additional Order Types

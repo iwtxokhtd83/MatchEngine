@@ -24,6 +24,7 @@ type Engine struct {
 	mu          sync.Mutex
 	nextID      uint64                          // atomic counter for ID generation
 	idPrefix    string                          // optional prefix for generated IDs
+	stpMode     model.STPMode                   // self-trade prevention mode
 	books       map[string]*orderbook.OrderBook // symbol -> order book
 	orderIndex  map[string]string               // order ID -> symbol (for duplicate detection)
 	trades      []model.Trade
@@ -54,6 +55,15 @@ func WithTradeHandler(h TradeHandler) Option {
 func WithIDPrefix(prefix string) Option {
 	return func(e *Engine) {
 		e.idPrefix = prefix
+	}
+}
+
+// WithSTPMode sets the self-trade prevention mode.
+// Default is STPNone (disabled). When enabled, orders from the same OwnerID
+// will not match against each other.
+func WithSTPMode(mode model.STPMode) Option {
+	return func(e *Engine) {
+		e.stpMode = mode
 	}
 }
 
@@ -147,6 +157,7 @@ func (e *Engine) SubmitRequest(symbol string, req model.OrderRequest) (string, [
 	} else {
 		order = model.NewLimitOrder(id, req.Side, req.Price, req.Quantity)
 	}
+	order.OwnerID = req.OwnerID
 	trades, err := e.SubmitOrder(symbol, order)
 	return id, trades, err
 }
@@ -240,6 +251,11 @@ func (e *Engine) cleanFilled(book *orderbook.OrderBook) {
 	book.RemoveFilled()
 }
 
+// isSelfTrade returns true if both orders have the same non-empty OwnerID.
+func isSelfTrade(a, b *model.Order) bool {
+	return a.OwnerID != "" && a.OwnerID == b.OwnerID
+}
+
 // matchBuy matches a buy order against the ask side.
 func (e *Engine) matchBuy(book *orderbook.OrderBook, order *model.Order) []model.Trade {
 	var trades []model.Trade
@@ -252,6 +268,15 @@ func (e *Engine) matchBuy(book *orderbook.OrderBook, order *model.Order) []model
 		if order.Type == model.Limit && bestAsk.Price.GreaterThan(order.Price) {
 			break
 		}
+
+		// Self-trade prevention
+		if e.stpMode != model.STPNone && isSelfTrade(order, bestAsk) {
+			if e.handleSTP(book, order, bestAsk) {
+				continue // resting was removed, try next level
+			}
+			break // incoming was cancelled
+		}
+
 		trade := executeTrade(order, bestAsk, bestAsk.Price)
 		trades = append(trades, trade)
 	}
@@ -271,11 +296,61 @@ func (e *Engine) matchSell(book *orderbook.OrderBook, order *model.Order) []mode
 		if order.Type == model.Limit && bestBid.Price.LessThan(order.Price) {
 			break
 		}
+
+		// Self-trade prevention
+		if e.stpMode != model.STPNone && isSelfTrade(order, bestBid) {
+			if e.handleSTP(book, order, bestBid) {
+				continue
+			}
+			break
+		}
+
 		trade := executeTrade(bestBid, order, bestBid.Price)
 		trades = append(trades, trade)
 	}
 
 	return trades
+}
+
+// handleSTP applies the self-trade prevention policy.
+// Returns true if matching should continue (resting removed), false if incoming was cancelled.
+func (e *Engine) handleSTP(book *orderbook.OrderBook, incoming, resting *model.Order) bool {
+	switch e.stpMode {
+	case model.STPCancelResting:
+		// Cancel the resting order, continue matching incoming
+		book.RemoveOrder(resting.ID)
+		delete(e.orderIndex, resting.ID)
+		return true
+
+	case model.STPCancelIncoming:
+		// Cancel the incoming order entirely
+		incoming.Remaining = decimal.Zero
+		return false
+
+	case model.STPCancelBoth:
+		// Cancel both orders
+		book.RemoveOrder(resting.ID)
+		delete(e.orderIndex, resting.ID)
+		incoming.Remaining = decimal.Zero
+		return false
+
+	case model.STPDecrement:
+		// Reduce both by the overlap quantity without producing a trade
+		overlap := decimal.Min(incoming.Remaining, resting.Remaining)
+		incoming.Remaining = incoming.Remaining.Sub(overlap)
+		resting.Remaining = resting.Remaining.Sub(overlap)
+		if resting.IsFilled() {
+			book.RemoveOrder(resting.ID)
+			delete(e.orderIndex, resting.ID)
+		}
+		if incoming.IsFilled() {
+			return false
+		}
+		return true
+
+	default:
+		return true
+	}
 }
 
 // executeTrade fills the minimum quantity between two orders and returns a trade.
