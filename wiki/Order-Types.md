@@ -1,94 +1,86 @@
 # Order Types
 
-MatchEngine supports two order types: Limit and Market.
+MatchEngine supports four order types and three time-in-force policies.
 
-## Limit Order
+## Order Types
 
-A limit order specifies the maximum price a buyer is willing to pay, or the minimum price a seller is willing to accept.
+### Limit Order
 
-```go
-order := model.NewLimitOrder("order-1", model.Buy, decimal.NewFromInt(100), decimal.NewFromInt(10))
-```
-
-Behavior:
-
-- If a matching order exists on the opposite side at a compatible price, the order is filled immediately (fully or partially).
-- If no match is available, the order rests in the order book until a future order matches it or it is cancelled.
-- A buy limit order matches if `best ask price <= order price`.
-- A sell limit order matches if `best bid price >= order price`.
-
-### Example: Limit Order Resting in Book
-
-```
-Book state: Ask side empty
-
-Submit: BUY 10 @ 100 (limit)
-→ No asks available, order rests in book
-
-Book state:
-  Bids: 10 @ 100
-  Asks: (empty)
-```
-
-### Example: Limit Order Matching Immediately
-
-```
-Book state:
-  Asks: SELL 5 @ 99
-
-Submit: BUY 10 @ 100 (limit)
-→ Trade: 5 @ 99 (resting order's price)
-→ Remaining 5 rests in book as a bid
-
-Book state:
-  Bids: 5 @ 100
-  Asks: (empty)
-```
-
-## Market Order
-
-A market order has no price constraint. It executes immediately at the best available prices, sweeping through multiple price levels if necessary.
+Specifies a maximum buy price or minimum sell price. Rests in the book if not immediately filled (with GTC time-in-force).
 
 ```go
-order := model.NewMarketOrder("order-2", model.Buy, decimal.NewFromInt(10))
+req := model.NewLimitOrderRequest(model.Buy, decimal.NewFromInt(100), decimal.NewFromInt(10))
 ```
 
-Behavior:
+### Market Order
 
-- Matches against the opposite side starting from the best price.
-- Continues matching at progressively worse prices until the order is fully filled or the opposite side is exhausted.
-- Never rests in the order book. Any unfilled quantity is discarded.
+No price constraint. Executes immediately at the best available prices. Never rests in the book.
 
-### Example: Market Order Sweeping Multiple Levels
-
+```go
+req := model.NewMarketOrderRequest(model.Buy, decimal.NewFromInt(10))
 ```
-Book state:
-  Asks: SELL 5 @ 100, SELL 5 @ 101
 
-Submit: BUY 8 (market)
-→ Trade 1: 5 @ 100
-→ Trade 2: 3 @ 101
-→ Order fully filled
+### Stop-Market Order
 
-Book state:
-  Asks: SELL 2 @ 101
+A dormant order that becomes a market order when the last trade price reaches the stop price.
+
+- **Buy stop**: triggers when last price >= stop price (used for breakout entries or stop-loss on shorts)
+- **Sell stop**: triggers when last price <= stop price (used for stop-loss on longs)
+
+```go
+req := model.NewStopMarketRequest(model.Buy, decimal.NewFromInt(105), decimal.NewFromInt(5))
+```
+
+### Stop-Limit Order
+
+Like stop-market, but converts to a limit order instead of a market order when triggered.
+
+```go
+req := model.NewStopLimitRequest(model.Buy, decimal.NewFromInt(105), decimal.NewFromInt(106), decimal.NewFromInt(5))
+// Triggers at 105, places limit buy at 106
+```
+
+## Time-in-Force (TIF)
+
+TIF controls how long an order remains active. Applies to limit orders.
+
+| TIF | Behavior |
+|-----|----------|
+| **GTC** (Good-Till-Cancelled) | Rests in book until filled or cancelled. Default. |
+| **IOC** (Immediate-or-Cancel) | Fills as much as possible immediately, cancels the rest. Never rests. |
+| **FOK** (Fill-or-Kill) | Must be filled entirely immediately, or is cancelled completely. All-or-nothing. |
+
+### IOC Example
+
+```go
+req := model.NewIOCOrderRequest(model.Buy, decimal.NewFromInt(100), decimal.NewFromInt(10))
+id, trades, _ := e.SubmitRequest("BTC/USD", req)
+// Fills what's available, discards the rest
+```
+
+### FOK Example
+
+```go
+req := model.NewFOKOrderRequest(model.Buy, decimal.NewFromInt(100), decimal.NewFromInt(10))
+id, trades, _ := e.SubmitRequest("BTC/USD", req)
+// Either fills all 10 or returns 0 trades
 ```
 
 ## Price Determination
 
-The trade price is always the resting order's price (the order already in the book). This follows standard exchange convention:
-
-- The **maker** (passive, resting order) sets the price.
-- The **taker** (aggressive, incoming order) accepts the price.
+The trade price is always the resting order's price (maker sets the price, taker accepts it).
 
 ## Order Fields
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `ID` | `string` | Unique order identifier |
+| `OwnerID` | `string` | Trader identifier (for STP) |
 | `Side` | `Side` | `Buy` or `Sell` |
-| `Type` | `OrderType` | `Limit` or `Market` |
-| `Price` | `decimal.Decimal` | Limit price (ignored for market orders) |
+| `Type` | `OrderType` | `Limit`, `Market`, `StopMarket`, `StopLimit` |
+| `TIF` | `TimeInForce` | `GTC`, `IOC`, `FOK` |
+| `Price` | `decimal.Decimal` | Limit price |
+| `StopPrice` | `decimal.Decimal` | Trigger price for stop orders |
 | `Quantity` | `decimal.Decimal` | Original order size |
-| `Remaining` | `decimal.Decimal` | Unfilled quantity (decreases on partial fills) |
-| `Timestamp` | `time.Time` | Order creation time (used for FIFO priority) |
+| `Remaining` | `decimal.Decimal` | Unfilled quantity |
+| `Timestamp` | `time.Time` | Order creation time |

@@ -4,8 +4,9 @@ A high-performance order matching engine written in Go.
 
 ## Features
 
-- Limit order support (buy/sell)
-- Market order support
+- Limit and market order support
+- Time-in-force: GTC (default), IOC (Immediate-or-Cancel), FOK (Fill-or-Kill)
+- Stop orders: Stop-Market and Stop-Limit with automatic trigger on last trade price
 - Price-time priority matching (FIFO)
 - Exact decimal arithmetic via [shopspring/decimal](https://github.com/shopspring/decimal)
 - Efficient price-level order book with O(log p) insertion (p = distinct price levels)

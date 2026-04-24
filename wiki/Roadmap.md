@@ -30,10 +30,8 @@ Four STP modes: CancelResting, CancelIncoming, CancelBoth, Decrement. Configurab
 
 ## Short Term
 
-### Additional Order Types
-- **Immediate-or-Cancel (IOC)**: Fill as much as possible immediately, cancel the rest.
-- **Fill-or-Kill (FOK)**: Fill the entire order immediately or cancel it entirely.
-- **Good-Till-Cancelled (GTC)**: Order stays in the book until explicitly cancelled or an expiry time is reached.
+### ~~Additional Order Types~~ ✅ (v0.6.0)
+IOC, FOK time-in-force policies. Stop-Market and Stop-Limit orders with automatic trigger on last trade price. New request constructors: `NewIOCOrderRequest`, `NewFOKOrderRequest`, `NewStopMarketRequest`, `NewStopLimitRequest`.
 
 ### ~~Benchmarks~~ ✅ (v0.3.0)
 Benchmark tests added: `BenchmarkInsertOnly`, `BenchmarkInsertAndMatch`, `BenchmarkInsertMultiplePriceLevels`. Run with `go test -bench=. -benchmem ./pkg/engine/`.

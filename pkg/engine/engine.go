@@ -27,6 +27,8 @@ type Engine struct {
 	stpMode     model.STPMode                   // self-trade prevention mode
 	books       map[string]*orderbook.OrderBook // symbol -> order book
 	orderIndex  map[string]string               // order ID -> symbol (for duplicate detection)
+	stopOrders  map[string][]*model.Order        // symbol -> pending stop orders
+	lastPrices  map[string]decimal.Decimal       // symbol -> last trade price
 	trades      []model.Trade
 	maxTrades   int
 	onTrade     TradeHandler
@@ -72,6 +74,8 @@ func New(opts ...Option) *Engine {
 	e := &Engine{
 		books:      make(map[string]*orderbook.OrderBook),
 		orderIndex: make(map[string]string),
+		stopOrders: make(map[string][]*model.Order),
+		lastPrices: make(map[string]decimal.Decimal),
 		trades:     make([]model.Trade, 0),
 		maxTrades:  defaultMaxTradeLog,
 	}
@@ -152,12 +156,25 @@ func (e *Engine) SubmitMarketOrder(symbol string, side model.Side, quantity deci
 func (e *Engine) SubmitRequest(symbol string, req model.OrderRequest) (string, []model.Trade, error) {
 	id := e.generateID()
 	var order *model.Order
-	if req.Type == model.Market {
+	switch req.Type {
+	case model.Market:
 		order = model.NewMarketOrder(id, req.Side, req.Quantity)
-	} else {
+	case model.StopMarket, model.StopLimit:
+		order = &model.Order{
+			ID:        id,
+			Side:      req.Side,
+			Type:      req.Type,
+			Price:     req.Price,
+			StopPrice: req.StopPrice,
+			Quantity:  req.Quantity,
+			Remaining: req.Quantity,
+			Timestamp: time.Now(),
+		}
+	default: // Limit
 		order = model.NewLimitOrder(id, req.Side, req.Price, req.Quantity)
 	}
 	order.OwnerID = req.OwnerID
+	order.TIF = req.TIF
 	trades, err := e.SubmitOrder(symbol, order)
 	return id, trades, err
 }
@@ -172,8 +189,11 @@ func (e *Engine) SubmitOrder(symbol string, order *model.Order) ([]model.Trade, 
 	if order.Remaining.LessThanOrEqual(decimal.Zero) {
 		return nil, fmt.Errorf("order quantity must be positive")
 	}
-	if order.Type == model.Limit && order.Price.LessThanOrEqual(decimal.Zero) {
+	if (order.Type == model.Limit || order.Type == model.StopLimit) && order.Price.LessThanOrEqual(decimal.Zero) {
 		return nil, fmt.Errorf("limit order price must be positive")
+	}
+	if (order.Type == model.StopMarket || order.Type == model.StopLimit) && order.StopPrice.LessThanOrEqual(decimal.Zero) {
+		return nil, fmt.Errorf("stop order requires a positive stop price")
 	}
 
 	symbol = normalizeSymbol(symbol)
@@ -181,41 +201,50 @@ func (e *Engine) SubmitOrder(symbol string, order *model.Order) ([]model.Trade, 
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	// Validate symbol
 	if err := e.validateSymbol(symbol); err != nil {
 		return nil, err
 	}
 
-	// Check for duplicate order ID
 	if _, exists := e.orderIndex[order.ID]; exists {
 		return nil, fmt.Errorf("duplicate order ID: %s", order.ID)
+	}
+
+	// Stop orders: store and wait for trigger
+	if order.Type == model.StopMarket || order.Type == model.StopLimit {
+		e.stopOrders[symbol] = append(e.stopOrders[symbol], order)
+		e.orderIndex[order.ID] = symbol
+		return nil, nil
+	}
+
+	// FOK pre-check: verify enough liquidity exists
+	if order.TIF == model.FOK {
+		book := e.getOrCreateBook(symbol)
+		if !e.canFillCompletely(book, order) {
+			return nil, nil // silently reject — not enough liquidity
+		}
 	}
 
 	book := e.getOrCreateBook(symbol)
 	trades := e.match(book, order)
 
-	// If the order is not fully filled and it's a limit order, add remainder to book
+	// IOC: discard any remaining quantity (never rests in book)
+	if order.TIF == model.IOC {
+		order.Remaining = decimal.Zero
+	}
+
+	// If the order is not fully filled and it's a limit order with GTC, add to book
 	if !order.IsFilled() && order.Type == model.Limit {
 		book.AddOrder(order)
 		e.orderIndex[order.ID] = symbol
 	}
 
-	// Record trades
-	for _, t := range trades {
-		if e.onTrade != nil {
-			e.onTrade(symbol, t)
-		}
-		if e.maxTrades > 0 {
-			if len(e.trades) >= e.maxTrades {
-				// Evict oldest 10%
-				evict := e.maxTrades / 10
-				if evict < 1 {
-					evict = 1
-				}
-				e.trades = e.trades[evict:]
-			}
-			e.trades = append(e.trades, t)
-		}
+	// Record trades and update last price
+	e.recordTrades(symbol, trades)
+
+	// Check if any stop orders should be triggered
+	if len(trades) > 0 {
+		triggered := e.triggerStopOrders(symbol)
+		trades = append(trades, triggered...)
 	}
 
 	return trades, nil
@@ -368,6 +397,105 @@ func executeTrade(buyOrder, sellOrder *model.Order, price decimal.Decimal) model
 	}
 }
 
+// canFillCompletely checks if the book has enough liquidity to fill the order entirely (for FOK).
+func (e *Engine) canFillCompletely(book *orderbook.OrderBook, order *model.Order) bool {
+	available := decimal.Zero
+	if order.Side == model.Buy {
+		for _, ask := range book.Asks() {
+			if order.Type == model.Limit && ask.Price.GreaterThan(order.Price) {
+				break
+			}
+			available = available.Add(ask.Remaining)
+			if available.GreaterThanOrEqual(order.Remaining) {
+				return true
+			}
+		}
+	} else {
+		for _, bid := range book.Bids() {
+			if order.Type == model.Limit && bid.Price.LessThan(order.Price) {
+				break
+			}
+			available = available.Add(bid.Remaining)
+			if available.GreaterThanOrEqual(order.Remaining) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// recordTrades records trades to the log and updates the last price.
+func (e *Engine) recordTrades(symbol string, trades []model.Trade) {
+	for _, t := range trades {
+		e.lastPrices[symbol] = t.Price
+		if e.onTrade != nil {
+			e.onTrade(symbol, t)
+		}
+		if e.maxTrades > 0 {
+			if len(e.trades) >= e.maxTrades {
+				evict := e.maxTrades / 10
+				if evict < 1 {
+					evict = 1
+				}
+				e.trades = e.trades[evict:]
+			}
+			e.trades = append(e.trades, t)
+		}
+	}
+}
+
+// triggerStopOrders checks pending stop orders and activates any that are triggered.
+func (e *Engine) triggerStopOrders(symbol string) []model.Trade {
+	lastPrice, ok := e.lastPrices[symbol]
+	if !ok {
+		return nil
+	}
+
+	stops := e.stopOrders[symbol]
+	var remaining []*model.Order
+	var allTrades []model.Trade
+
+	for _, stop := range stops {
+		if e.isStopTriggered(stop, lastPrice) {
+			delete(e.orderIndex, stop.ID)
+			// Convert stop to active order
+			var active *model.Order
+			if stop.Type == model.StopMarket {
+				active = model.NewMarketOrder(stop.ID, stop.Side, stop.Remaining)
+			} else { // StopLimit
+				active = model.NewLimitOrder(stop.ID, stop.Side, stop.Price, stop.Remaining)
+			}
+			active.OwnerID = stop.OwnerID
+
+			book := e.getOrCreateBook(symbol)
+			trades := e.match(book, active)
+
+			if !active.IsFilled() && active.Type == model.Limit {
+				book.AddOrder(active)
+				e.orderIndex[active.ID] = symbol
+			}
+
+			e.recordTrades(symbol, trades)
+			allTrades = append(allTrades, trades...)
+		} else {
+			remaining = append(remaining, stop)
+		}
+	}
+
+	e.stopOrders[symbol] = remaining
+	return allTrades
+}
+
+// isStopTriggered checks if a stop order should be activated based on the last trade price.
+func (e *Engine) isStopTriggered(stop *model.Order, lastPrice decimal.Decimal) bool {
+	if stop.Side == model.Buy {
+		// Buy stop triggers when price rises to or above stop price
+		return lastPrice.GreaterThanOrEqual(stop.StopPrice)
+	}
+	// Sell stop triggers when price falls to or below stop price
+	return lastPrice.LessThanOrEqual(stop.StopPrice)
+}
+
 // CancelOrder removes an order from the book.
 func (e *Engine) CancelOrder(symbol, orderID string) bool {
 	symbol = normalizeSymbol(symbol)
@@ -375,14 +503,23 @@ func (e *Engine) CancelOrder(symbol, orderID string) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
+	// Try to cancel from order book
 	book, ok := e.books[symbol]
-	if !ok {
-		return false
-	}
-	if book.RemoveOrder(orderID) {
+	if ok && book.RemoveOrder(orderID) {
 		delete(e.orderIndex, orderID)
 		return true
 	}
+
+	// Try to cancel from stop orders
+	stops := e.stopOrders[symbol]
+	for i, s := range stops {
+		if s.ID == orderID {
+			e.stopOrders[symbol] = append(stops[:i], stops[i+1:]...)
+			delete(e.orderIndex, orderID)
+			return true
+		}
+	}
+
 	return false
 }
 

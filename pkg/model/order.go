@@ -27,13 +27,23 @@ type OrderType int
 const (
 	Limit OrderType = iota
 	Market
+	StopMarket // becomes Market when stop price is triggered
+	StopLimit  // becomes Limit when stop price is triggered
 )
 
 func (t OrderType) String() string {
-	if t == Limit {
+	switch t {
+	case Limit:
 		return "LIMIT"
+	case Market:
+		return "MARKET"
+	case StopMarket:
+		return "STOP_MARKET"
+	case StopLimit:
+		return "STOP_LIMIT"
+	default:
+		return "UNKNOWN"
 	}
-	return "MARKET"
 }
 
 // Order represents a trading order.
@@ -42,7 +52,9 @@ type Order struct {
 	OwnerID   string          // identifies the trader (used for self-trade prevention)
 	Side      Side
 	Type      OrderType
-	Price     decimal.Decimal // ignored for market orders
+	TIF       TimeInForce     // time-in-force policy (default: GTC)
+	Price     decimal.Decimal // limit price (ignored for market orders)
+	StopPrice decimal.Decimal // trigger price for stop orders
 	Quantity  decimal.Decimal
 	Remaining decimal.Decimal
 	Timestamp time.Time
